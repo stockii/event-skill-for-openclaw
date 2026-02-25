@@ -16,6 +16,7 @@ const { format, addDays, startOfDay, endOfDay, parseISO } = require('date-fns');
 const CACHE_DIR = path.join(__dirname, '.cache');
 const CACHE_TTL_MS = 30 * 60 * 1000;
 const ENV_PATH = path.join(__dirname, '.env');
+const SECRETS_PATH = '/root/.openclaw/workspace/.secrets.env';
 const TIMEOUT = 15000;
 const UA = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36';
 
@@ -23,10 +24,13 @@ const UA = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120.0.0.0 
 const GEO = { lat: 50.5840, lon: 8.6784 };
 
 function loadEnv() {
-  if (fs.existsSync(ENV_PATH)) {
-    for (const line of fs.readFileSync(ENV_PATH, 'utf-8').split('\n')) {
-      const m = line.match(/^([A-Z_]+)=(.+)$/);
-      if (m && !process.env[m[1]]) process.env[m[1]] = m[2].trim();
+  // Load central secrets first, then local overrides
+  for (const envFile of [SECRETS_PATH, ENV_PATH]) {
+    if (fs.existsSync(envFile)) {
+      for (const line of fs.readFileSync(envFile, 'utf-8').split('\n')) {
+        const m = line.match(/^([A-Z_][A-Z0-9_]*)=(.+)$/);
+        if (m && !process.env[m[1]]) process.env[m[1]] = m[2].trim();
+      }
     }
   }
 }
