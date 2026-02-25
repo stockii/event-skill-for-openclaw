@@ -41,7 +41,7 @@ function parseArgs() {
   const args = process.argv.slice(2);
   const opts = {
     city: process.env.CITY || 'Gießen',
-    radius: parseInt(process.env.RADIUS_KM || '30'),
+    radius: parseInt(process.env.RADIUS_KM || '50'),
     type: 'all',
     limit: 30,
     date: null,
