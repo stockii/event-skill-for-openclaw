@@ -307,7 +307,7 @@ function formatText(events, dateRange) {
     out += `• **${time}** — ${e.name}`;
     if (e.venue) out += ` @ ${e.venue}`;
     if (e.price) out += ` (${e.price})`;
-    if (e.url) out += `\n  <${e.url}>`;
+    if (e.url) out += ` · [→ Info](<${e.url}>)`;
     out += '\n';
   }
 
