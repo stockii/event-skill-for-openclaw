@@ -141,11 +141,12 @@ async function fetchTicketmaster(dateRange, opts) {
   }
 }
 
-// ── Provider: Meetup (Public Web) ───────────────────────────────────────
+// ── Provider: giessen.de (Scraping) ─────────────────────────────────────
 
-async function fetchMeetup(dateRange, opts) {
+async function fetchGiessenDe(dateRange, opts) {
   try {
-    const url = `https://www.meetup.com/find/?location=Gie%C3%9Fen%2C+Germany&source=EVENTS&eventType=inPerson&distance=thirtyMiles`;
+    const BASE = 'https://www.giessen.de';
+    const url = `${BASE}/Erleben/Veranstaltungen/`;
     const { data } = await axios.get(url, {
       headers: { 'User-Agent': UA, 'Accept-Language': 'de-DE,de;q=0.9' },
       timeout: TIMEOUT,
@@ -153,53 +154,94 @@ async function fetchMeetup(dateRange, opts) {
 
     const $ = cheerio.load(data);
     const events = [];
+    const startTs = dateRange.start.getTime();
+    const endTs = dateRange.end.getTime();
 
-    // Extract from JSON-LD if available
-    $('script[type="application/ld+json"]').each((_, el) => {
-      try {
-        const json = JSON.parse($(el).html());
-        const items = Array.isArray(json) ? json : [json];
-        for (const item of items) {
-          if (item['@type'] === 'Event' || item['@type'] === 'SocialEvent') {
-            events.push({
-              name: item.name,
-              date: item.startDate || null,
-              venue: item.location?.name || null,
-              address: item.location?.address?.streetAddress || null,
-              type: 'meetup',
-              url: item.url || null,
-              price: item.isAccessibleForFree ? 'Kostenlos' : null,
-              source: 'meetup',
-              description: (item.description || '').slice(0, 200) || null,
-            });
-          }
+    // Each event is a list item with link, title, date, description
+    $('ul li').each((_, el) => {
+      const $el = $(el);
+      const $link = $el.find('a[href*="/Veranstaltungen/"]').first();
+      if (!$link.length) return;
+
+      const text = $el.text().replace(/\s+/g, ' ').trim();
+      const href = $link.attr('href');
+      
+      // Extract name - it's the main text of the link
+      const rawText = $link.text().replace(/\s+/g, ' ').trim();
+      // Try to get clean name from URL slug as primary source
+      let name = null;
+      if (href) {
+        const slugMatch = href.match(/Veranstaltungen\/([^.?]+)/);
+        if (slugMatch) {
+          name = decodeURIComponent(slugMatch[1])
+            .replace(/-/g, ' ')
+            .replace(/\.php$/, '')
+            .trim();
         }
-      } catch {}
-    });
+      }
+      // Fallback to text with copyright cleanup
+      if (!name || name.length < 3) {
+        name = rawText
+          .replace(/^©\s*.+?\s{2,}/, '') // © Author  Title (double space separates)
+          .replace(/^©\s*/, '')
+          .trim();
+      }
 
-    // Fallback: parse HTML cards
-    if (events.length === 0) {
-      $('[data-testid="categoryResults-eventCard"], [id*="event-card"]').each((_, el) => {
-        const $el = $(el);
-        const name = $el.find('h2, h3, [class*="title"]').first().text().trim();
-        const link = $el.find('a[href*="/events/"]').first().attr('href');
-        const dateText = $el.find('time').first().attr('datetime') || $el.find('time').first().text().trim();
+      if (!name || name.length < 3) return;
+      // Skip navigation links
+      if (['heute', 'morgen', 'diese Woche', 'dieses Wochenende', '4 Wochen ab heute',
+           'Veranstaltungen', 'Musikalischer Sommer', 'Raumkataster'].includes(name)) return;
 
-        if (name) {
-          events.push({
-            name,
-            date: dateText || null,
-            venue: null,
-            address: null,
-            type: 'meetup',
-            url: link ? (link.startsWith('http') ? link : `https://www.meetup.com${link}`) : null,
-            price: null,
-            source: 'meetup',
-            description: null,
-          });
-        }
+      // Extract date patterns: "25.02.2026 18:00 Uhr" or "24.02.2026 bis 26.02.2026"
+      let date = null;
+      let dateEnd = null;
+      
+      // Single date with time: "25.02.2026  18:00 Uhr" or "25.02.2026  18:00 bis 22:00 Uhr"
+      const singleMatch = text.match(/(\d{2}\.\d{2}\.\d{4})\s+(\d{2}:\d{2})(?:\s+bis\s+(\d{2}:\d{2}))?\s*Uhr/);
+      // Date range: "24.02.2026 bis 26.02.2026"
+      const rangeMatch = text.match(/(\d{2}\.\d{2}\.\d{4})\s+bis\s+(\d{2}\.\d{2}\.\d{4})/);
+      // Single date only: "25.02.2026"
+      const dateOnly = text.match(/(\d{2}\.\d{2}\.\d{4})/);
+
+      if (singleMatch) {
+        date = parseDateDE(`${singleMatch[1]} ${singleMatch[2]}`);
+      } else if (rangeMatch) {
+        date = parseDateDE(rangeMatch[1]);
+        dateEnd = parseDateDE(rangeMatch[2]);
+      } else if (dateOnly) {
+        date = parseDateDE(dateOnly[1]);
+      }
+
+      // Filter by date range
+      if (date) {
+        const eventTs = new Date(date).getTime();
+        const eventEndTs = dateEnd ? new Date(dateEnd).getTime() : eventTs;
+        // Skip if event ends before our range or starts after
+        if (eventEndTs < startTs || eventTs > endTs) return;
+      }
+
+      // Extract description (text after the date info)
+      let description = null;
+      const descMatch = text.match(/Uhr\s+(.+?)(?:\s+Mehr\s*\.\.\.)?$/);
+      if (descMatch) description = descMatch[1].slice(0, 200);
+      else {
+        // Try text after date range
+        const afterDate = text.match(/\d{4}\s+(.{10,}?)$/);
+        if (afterDate) description = afterDate[1].slice(0, 200);
+      }
+
+      events.push({
+        name: name.split(/\d{2}\.\d{2}\.\d{4}/)[0].trim() || name,
+        date,
+        venue: null,
+        address: 'Gießen',
+        type: 'other',
+        url: href ? (href.startsWith('http') ? href : `${BASE}${href}`) : null,
+        price: null,
+        source: 'giessen.de',
+        description,
       });
-    }
+    });
 
     return { events, status: `ok (${events.length} Events)` };
   } catch (e) {
@@ -254,7 +296,9 @@ function formatText(events, dateRange) {
 
   let lastDay = '';
   for (const e of events) {
-    const day = e.date ? format(new Date(e.date), 'EEEE, dd.MM.') : 'Datum unbekannt';
+    const TAGE = ['Sonntag','Montag','Dienstag','Mittwoch','Donnerstag','Freitag','Samstag'];
+    const d = e.date ? new Date(e.date) : null;
+    const day = d ? `${TAGE[d.getDay()]}, ${format(d, 'dd.MM.')}` : 'Datum unbekannt';
     if (day !== lastDay) {
       out += `\n**📅 ${day}**\n`;
       lastDay = day;
@@ -289,7 +333,7 @@ async function main() {
 
   const providers = [
     { name: 'Ticketmaster', fn: () => fetchTicketmaster(dateRange, opts) },
-    { name: 'Meetup', fn: () => fetchMeetup(dateRange, opts) },
+    { name: 'Giessen.de', fn: () => fetchGiessenDe(dateRange, opts) },
   ];
 
   const results = await Promise.allSettled(providers.map(p => p.fn()));
