@@ -188,9 +188,9 @@ async function fetchGiessenDe(dateRange, opts) {
       }
 
       if (!name || name.length < 3) return;
-      // Skip navigation links
-      if (['heute', 'morgen', 'diese Woche', 'dieses Wochenende', '4 Wochen ab heute',
-           'Veranstaltungen', 'Musikalischer Sommer', 'Raumkataster'].includes(name)) return;
+      // Skip navigation/index links
+      if (/^(heute|morgen|diese Woche|dieses Wochenende|4 Wochen|Veranstaltungen|Musikalischer Sommer|Raumkataster|index)$/i.test(name)) return;
+      if (href && href.includes('index.php?')) return;
 
       // Extract date patterns: "25.02.2026 18:00 Uhr" or "24.02.2026 bis 26.02.2026"
       let date = null;
