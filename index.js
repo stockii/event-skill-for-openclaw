@@ -10,6 +10,11 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { format, addDays, startOfDay, endOfDay, parseISO } = require('date-fns');
+const { fetchDeskline } = require('./providers/deskline');
+
+async function fetchDesklineCity(cityKey, dateRange, opts) {
+  return fetchDeskline(cityKey, dateRange, opts);
+}
 
 // ── Config ──────────────────────────────────────────────────────────────
 
@@ -530,9 +535,12 @@ async function main() {
   const providers = [
     { name: 'Ticketmaster', fn: () => fetchTicketmaster(dateRange, opts) },
     { name: 'Giessen.de', fn: () => fetchGiessenDe(dateRange, opts) },
-    // Marburg.de + Wetzlar.de deaktiviert: haben keinen brauchbaren Veranstaltungskalender
-    // { name: 'Marburg.de', fn: () => fetchMarburgDe(dateRange, opts) },
-    // { name: 'Wetzlar.de', fn: () => fetchWetzlarDe(dateRange, opts) },
+    // TODO: Marburg.de + Wetzlar.de nutzen Deskline (feratel) Widget
+    // Puppeteer-Scraper in providers/deskline.js vorhanden, aber Widget
+    // lädt Events nicht in scrape-baren DOM. Braucht weitere Analyse.
+    // Ticketmaster deckt Marburg/Wetzlar Events über 50km-Radius ab.
+    // { name: 'Marburg.de', fn: () => fetchDesklineCity('marburg', dateRange, opts) },
+    // { name: 'Wetzlar.de', fn: () => fetchDesklineCity('wetzlar', dateRange, opts) },
   ];
 
   const results = await Promise.allSettled(providers.map(p => p.fn()));
