@@ -438,7 +438,7 @@ const SPORT_PATTERNS = [
   { priority: 2, label: 'MTB', icon: '🏔️', keywords: /\bmtb\b|mountainbike|mountain\s*bike|singletrail|trail\s*tour|enduro|downhill/i },
   { priority: 3, label: 'Climbing', icon: '🧗', keywords: /klettern|climbing|bouldern|boulder/i },
   { priority: 4, label: 'Hiking', icon: '🥾', keywords: /wanderung|hiking|trekking|wandern|bergtour|hütten/i },
-  { priority: 5, label: 'Sport', icon: '⚽', keywords: /sport|lauf|run|radtour|rad\s*tour|yoga|fitness/i },
+  { priority: 5, label: 'Sport', icon: '⚽', keywords: /\bsport\b|\blauf\b|\brun\b|\bradtour\b|\brad\s*tour\b|\byoga\b|\bfitness\b/i },
 ];
 
 function getSportPriority(e) {
@@ -530,8 +530,9 @@ async function main() {
   const providers = [
     { name: 'Ticketmaster', fn: () => fetchTicketmaster(dateRange, opts) },
     { name: 'Giessen.de', fn: () => fetchGiessenDe(dateRange, opts) },
-    { name: 'Marburg.de', fn: () => fetchMarburgDe(dateRange, opts) },
-    { name: 'Wetzlar.de', fn: () => fetchWetzlarDe(dateRange, opts) },
+    // Marburg.de + Wetzlar.de deaktiviert: haben keinen brauchbaren Veranstaltungskalender
+    // { name: 'Marburg.de', fn: () => fetchMarburgDe(dateRange, opts) },
+    // { name: 'Wetzlar.de', fn: () => fetchWetzlarDe(dateRange, opts) },
   ];
 
   const results = await Promise.allSettled(providers.map(p => p.fn()));
