@@ -1,0 +1,16 @@
+{
+  "name": "giessen-events",
+  "version": "1.0.0",
+  "description": "Wöchentlicher Event-Aggregator für Gießen und Umgebung",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "search": "node index.js"
+  },
+  "dependencies": {
+    "axios": "^1.7.0",
+    "cheerio": "^1.0.0",
+    "date-fns": "^3.6.0"
+  },
+  "license": "MIT"
+}
