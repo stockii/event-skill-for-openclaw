@@ -249,6 +249,135 @@ async function fetchGiessenDe(dateRange, opts) {
   }
 }
 
+// ── Provider: marburg.de (Scraping) ─────────────────────────────────────
+
+async function fetchMarburgDe(dateRange, opts) {
+  try {
+    const BASE = 'https://www.marburg.de';
+    const urls = [
+      `${BASE}/wirtschaft-und-zukunft/stadtmarketing-marburg/eigene-veranstaltungen/`,
+      `${BASE}/kultur-und-tourismus/erwin-piscator-haus/eigene-veranstaltungen/`,
+    ];
+    const events = [];
+    const startTs = dateRange.start.getTime();
+    const endTs = dateRange.end.getTime();
+
+    for (const url of urls) {
+      const { data } = await axios.get(url, {
+        headers: { 'User-Agent': UA, 'Accept-Language': 'de-DE,de;q=0.9' },
+        timeout: TIMEOUT,
+      });
+      const $ = cheerio.load(data);
+
+      // Find event links and walk up to get parent block (h4 + description)
+      $('a[href*="/portal/seiten/"]').each((_, el) => {
+        const $link = $(el);
+        const href = $link.attr('href');
+        if (!href || $link.text().toLowerCase().includes('zurück')) return;
+
+        const $block = $link.closest('div, article, section, li').length
+          ? $link.closest('div, article, section, li')
+          : $link.parent();
+        const text = $block.text().replace(/\s+/g, ' ').trim();
+        const $heading = $block.find('h3, h4, h5').first();
+        const name = ($heading.length ? $heading.text() : $link.closest('h3, h4, h5').text() || text.split(/weiterlesen|Am\s+\d|Jeden\s+/i)[0]).replace(/\s+/g, ' ').trim();
+        if (!name || name.length < 5) return;
+
+        let date = null;
+        const ddmmMatch = text.match(/(\d{2})\.(\d{2})\.(\d{4})/);
+        if (ddmmMatch) date = parseDateDE(ddmmMatch[0]);
+        else if (text.match(/\d{1,2}\.?\s+und\s+\d{1,2}\.?\s+\w+/i) || text.match(/\d{1,2}\.?\s+\w+\s+\d{4}/i)) {
+          date = parseDateDE(text);
+        }
+        if (!date) return;
+
+        const eventTs = new Date(date).getTime();
+        if (eventTs < startTs || eventTs > endTs) return;
+
+        events.push({
+          name: name.slice(0, 100),
+          date,
+          venue: 'Marburg',
+          address: 'Marburg',
+          type: 'other',
+          url: href.startsWith('http') ? href : `${BASE}${href}`,
+          price: null,
+          source: 'marburg.de',
+          description: text.slice(0, 200),
+        });
+      });
+    }
+
+    return { events, status: `ok (${events.length} Events)` };
+  } catch (e) {
+    return { events: [], status: `error: ${e.message}` };
+  }
+}
+
+// ── Provider: wetzlar.de (Scraping, TYPO3-style) ─────────────────────────
+
+async function fetchWetzlarDe(dateRange, opts) {
+  try {
+    const BASE = 'https://www.wetzlar.de';
+    const url = `${BASE}/leben-in-wetzlar/veranstaltungen/index.php`;
+    const { data } = await axios.get(url, {
+      headers: { 'User-Agent': UA, 'Accept-Language': 'de-DE,de;q=0.9' },
+      timeout: TIMEOUT,
+    });
+
+    const $ = cheerio.load(data);
+    const events = [];
+    const startTs = dateRange.start.getTime();
+    const endTs = dateRange.end.getTime();
+
+    // TYPO3-style: ul li with event links (same structure as Giessen if applicable)
+    $('ul li').each((_, el) => {
+      const $el = $(el);
+      const $link = $el.find('a[href*="/veranstaltungen/"], a[href*="/Veranstaltungen/"]').first();
+      if (!$link.length) return;
+
+      const href = $link.attr('href');
+      if (!href || href.includes('index.php') || href.includes('veranstaltung-melden')) return;
+
+      const text = $el.text().replace(/\s+/g, ' ').trim();
+      const slugMatch = href.match(/veranstaltungen\/([^.?]+)/i);
+      const name = slugMatch
+        ? decodeURIComponent(slugMatch[1]).replace(/-/g, ' ').replace(/\.php$/i, '').trim()
+        : $link.text().replace(/\s+/g, ' ').trim();
+      if (!name || name.length < 3) return;
+      if (/^(heute|morgen|diese Woche|dieses Wochenende|Veranstaltung|index)$/i.test(name)) return;
+
+      let date = null;
+      const singleMatch = text.match(/(\d{2}\.\d{2}\.\d{4})\s+(\d{2}:\d{2})/);
+      const rangeMatch = text.match(/(\d{2}\.\d{2}\.\d{4})\s+bis\s+(\d{2}\.\d{2}\.\d{4})/);
+      const dateOnly = text.match(/(\d{2}\.\d{2}\.\d{4})/);
+      if (singleMatch) date = parseDateDE(`${singleMatch[1]} ${singleMatch[2]}`);
+      else if (rangeMatch) date = parseDateDE(rangeMatch[1]);
+      else if (dateOnly) date = parseDateDE(dateOnly[1]);
+      if (!date) return;
+
+      const eventTs = new Date(date).getTime();
+      if (eventTs < startTs || eventTs > endTs) return;
+
+      events.push({
+        name: name.split(/\d{2}\.\d{2}\.\d{4}/)[0].trim() || name,
+        date,
+        venue: null,
+        address: 'Wetzlar',
+        type: 'other',
+        url: href.startsWith('http') ? href : `${BASE}${href}`,
+        price: null,
+        source: 'wetzlar.de',
+        description: null,
+      });
+    });
+
+    return { events, status: `ok (${events.length} Events)` };
+  } catch (e) {
+    return { events: [], status: `error: ${e.message}` };
+  }
+}
+
 // ── Date Parsing (German) ───────────────────────────────────────────────
 
 function parseDateDE(str) {
@@ -259,7 +388,24 @@ function parseDateDE(str) {
     const [, d, mo, y, h, min] = m;
     return `${y}-${mo.padStart(2,'0')}-${d.padStart(2,'0')}T${(h||'00').padStart(2,'0')}:${(min||'00').padStart(2,'0')}:00`;
   }
-  return null;
+  // "11. und 12. April", "30. April 2025", "10. und 11. Oktober 2026"
+  const months = ['januar','februar','märz','april','mai','juni','juli','august','september','oktober','november','dezember'];
+  const rangeMatch = str.match(/(\d{1,2})\.?\s+und\s+(\d{1,2})\.?\s+(\w+)\s+(\d{4})?/i);
+  const singleMatch = str.match(/(\d{1,2})\.?\s+(\w+)\s+(\d{4})?/i);
+  const now = new Date();
+  const year = (rangeMatch && rangeMatch[4]) || (singleMatch && singleMatch[3]) || String(now.getFullYear());
+  let monthNum, day;
+  if (rangeMatch) {
+    const mon = rangeMatch[3].toLowerCase().replace(/ä/g,'a');
+    monthNum = months.findIndex(m => mon.startsWith(m.slice(0,3))) + 1;
+    day = parseInt(rangeMatch[1], 10);
+  } else if (singleMatch) {
+    const mon = singleMatch[2].toLowerCase().replace(/ä/g,'a');
+    monthNum = months.findIndex(m => mon.startsWith(m.slice(0,3))) + 1;
+    day = parseInt(singleMatch[1], 10);
+  } else return null;
+  if (monthNum < 1 || monthNum > 12) return null;
+  return `${year}-${String(monthNum).padStart(2,'0')}-${String(day).padStart(2,'0')}T00:00:00`;
 }
 
 // ── Deduplicate & Sort ──────────────────────────────────────────────────
@@ -285,6 +431,24 @@ function dedup(events) {
   });
 }
 
+// ── Sport Priority (1=Gravel, 2=MTB, 3=Climbing, 4=Hiking, 5=other) ────────
+
+const SPORT_PATTERNS = [
+  { priority: 1, label: 'Gravel', icon: '🚴', keywords: /gravel|grvl|schotter|radsport/i },
+  { priority: 2, label: 'MTB', icon: '🏔️', keywords: /\bmtb\b|mountainbike|mountain\s*bike|singletrail|trail\s*tour|enduro|downhill/i },
+  { priority: 3, label: 'Climbing', icon: '🧗', keywords: /klettern|climbing|bouldern|boulder/i },
+  { priority: 4, label: 'Hiking', icon: '🥾', keywords: /wanderung|hiking|trekking|wandern|bergtour|hütten/i },
+  { priority: 5, label: 'Sport', icon: '⚽', keywords: /sport|lauf|run|radtour|rad\s*tour|yoga|fitness/i },
+];
+
+function getSportPriority(e) {
+  const text = [e.name, e.description, e.type].filter(Boolean).join(' ').toLowerCase();
+  for (const p of SPORT_PATTERNS) {
+    if (p.keywords.test(text)) return { priority: p.priority, label: p.label, icon: p.icon };
+  }
+  return null;
+}
+
 // ── Output ──────────────────────────────────────────────────────────────
 
 function formatText(events, dateRange) {
@@ -294,21 +458,49 @@ function formatText(events, dateRange) {
   const endStr = format(dateRange.end, 'dd.MM.yyyy');
   let out = `🎉 **${events.length} Events in Gießen & Umgebung** (${startStr} – ${endStr})\n`;
 
-  let lastDay = '';
+  // Group by day, sort events: sport first (prio 1→2→3→4→5), then non-sport, then by time
+  const byDay = new Map();
   for (const e of events) {
-    const TAGE = ['Sonntag','Montag','Dienstag','Mittwoch','Donnerstag','Freitag','Samstag'];
     const d = e.date ? new Date(e.date) : null;
+    const dayKey = d ? format(d, 'yyyy-MM-dd') : 'unknown';
+    if (!byDay.has(dayKey)) byDay.set(dayKey, []);
+    byDay.get(dayKey).push(e);
+  }
+  for (const [dayKey, dayEvents] of byDay) {
+    dayEvents.sort((a, b) => {
+      const spa = getSportPriority(a);
+      const spb = getSportPriority(b);
+      const pa = spa ? spa.priority : 99;
+      const pb = spb ? spb.priority : 99;
+      if (pa !== pb) return pa - pb;
+      const ta = a.date ? new Date(a.date).getTime() : 0;
+      const tb = b.date ? new Date(b.date).getTime() : 0;
+      return ta - tb;
+    });
+  }
+
+  const TAGE = ['Sonntag','Montag','Dienstag','Mittwoch','Donnerstag','Freitag','Samstag'];
+  const sortedDays = [...byDay.keys()].sort();
+  let lastDay = '';
+
+  for (const dayKey of sortedDays) {
+    const dayEvents = byDay.get(dayKey);
+    const d = dayKey !== 'unknown' ? new Date(dayKey + 'T12:00:00') : null;
     const day = d ? `${TAGE[d.getDay()]}, ${format(d, 'dd.MM.')}` : 'Datum unbekannt';
     if (day !== lastDay) {
       out += `\n**📅 ${day}**\n`;
       lastDay = day;
     }
-    const time = e.date ? format(new Date(e.date), 'HH:mm') : '??:??';
-    out += `• **${time}** — ${e.name}`;
-    if (e.venue) out += ` @ ${e.venue}`;
-    if (e.price) out += ` (${e.price})`;
-    if (e.url) out += ` · [→ Info](<${e.url}>)`;
-    out += '\n';
+    for (const e of dayEvents) {
+      const sport = getSportPriority(e);
+      const time = e.date ? format(new Date(e.date), 'HH:mm') : '??:??';
+      const badge = sport ? ` ${sport.icon} **${sport.label}**` : '';
+      out += `• **${time}** — ${e.name}${badge}`;
+      if (e.venue) out += ` @ ${e.venue}`;
+      if (e.price) out += ` (${e.price})`;
+      if (e.url) out += ` · [→ Info](<${e.url}>)`;
+      out += '\n';
+    }
   }
 
   return out;
@@ -325,7 +517,11 @@ async function main() {
   const cached = readCache(cacheKey);
   if (cached) {
     console.error('📦 Cache hit');
-    console.log(opts.json ? JSON.stringify(cached, null, 2) : formatText(cached, dateRange));
+    const enriched = cached.map(e => {
+      const sport = getSportPriority(e);
+      return { ...e, sportPriority: sport ? sport.priority : 99, sportLabel: sport ? sport.label : null };
+    });
+    console.log(opts.json ? JSON.stringify(enriched, null, 2) : formatText(enriched, dateRange));
     return;
   }
 
@@ -334,6 +530,8 @@ async function main() {
   const providers = [
     { name: 'Ticketmaster', fn: () => fetchTicketmaster(dateRange, opts) },
     { name: 'Giessen.de', fn: () => fetchGiessenDe(dateRange, opts) },
+    { name: 'Marburg.de', fn: () => fetchMarburgDe(dateRange, opts) },
+    { name: 'Wetzlar.de', fn: () => fetchWetzlarDe(dateRange, opts) },
   ];
 
   const results = await Promise.allSettled(providers.map(p => p.fn()));
@@ -352,6 +550,12 @@ async function main() {
   if (opts.type !== 'all') {
     allEvents = allEvents.filter(e => e.type === opts.type || e.type === 'other');
   }
+
+  // Add sportPriority for JSON / sorting
+  allEvents = allEvents.map(e => {
+    const sport = getSportPriority(e);
+    return { ...e, sportPriority: sport ? sport.priority : 99, sportLabel: sport ? sport.label : null };
+  });
 
   writeCache(cacheKey, allEvents);
   console.log(opts.json ? JSON.stringify(allEvents, null, 2) : formatText(allEvents, dateRange));

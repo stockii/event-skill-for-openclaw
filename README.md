@@ -40,10 +40,11 @@ Ein Node.js-Script, das mehrere Quellen parallel abfragt, dedupliziert und als f
 | Quelle | Methode | API Key nötig? | Beschreibung |
 |--------|---------|----------------|--------------|
 | **Ticketmaster** | REST API | ✅ (kostenlos) | Konzerte, Shows, Sport |
-| **Eventim** | Web Scraping | ❌ | Große dt. Ticketplattform |
-| **Reservix** | Web Scraping | ❌ | Regional stark in Hessen |
+| **giessen.de** | Web Scraping | ❌ | Offizieller Veranstaltungskalender Gießen |
+| **marburg.de** | Web Scraping | ❌ | Stadtmarketing & Erwin-Piscator-Haus Marburg |
+| **wetzlar.de** | Web Scraping | ❌ | Veranstaltungskalender Wetzlar (TYPO3) |
 
-Erweiterbar um weitere Quellen (Eventbrite, Meetup, Facebook etc.)
+Erweiterbar um weitere Quellen (Eventim, Reservix, Meetup etc.)
 
 ### Features
 
@@ -61,6 +62,27 @@ npm install
 cp .env.example .env
 # API Keys eintragen (optional, Scraping funktioniert ohne)
 ```
+
+## Docker / Colima
+
+```bash
+# Colima starten (falls noch nicht läuft)
+colima start
+
+# Image bauen & ausführen
+docker compose build
+docker compose run --rm events
+
+# Mit Optionen
+docker compose run --rm events --json
+docker compose run --rm events --date weekend --radius 50
+
+# Oder direkt mit docker
+docker build -t giessen-events .
+docker run --rm -e TICKETMASTER_API_KEY=$TICKETMASTER_API_KEY giessen-events --json
+```
+
+Für Ticketmaster: `.env` anlegen und API-Key eintragen (`cp .env.example .env`).
 
 ## Usage
 

@@ -1,0 +1,16 @@
+services:
+  events:
+    build: .
+    image: giessen-events:latest
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      - NODE_ENV=production
+    volumes:
+      - events-cache:/app/.cache
+    # CLI-Args: docker compose run events --json
+    #           docker compose run events --date weekend --radius 50
+
+volumes:
+  events-cache:
